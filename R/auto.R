@@ -33,12 +33,11 @@ pre_release_impl <- function(which, force) {
 
   stopifnot(git2r::is_branch(git2r::repository_head()))
 
-  # check PAT scopes for PR for early abort
+   # check PAT scopes for PR for early abort
   check_gh_scopes()
 
-  # We expect that this branch is pushed already, ok to fail here
+  remote_name <- get_remote_name()
   main_branch <- get_branch_name()
-  remote_name <- get_remote_name(main_branch)
 
   # Commit ignored files as early as possible
   usethis::use_git_ignore("CRAN-RELEASE")
@@ -50,28 +49,34 @@ pre_release_impl <- function(which, force) {
   # bump version on main branch to version set by user
   bump_version(which)
 
-  # switch to release branch and update cran-comments
-  release_branch <- create_release_branch(force)
+  cli_h2("Preparing CRAN release")
+
+  release_branch <- create_release_branch()
   switch_branch(release_branch)
+
   update_cran_comments()
 
-  # push main branch, bump to devel version and push again
-  push_to_new(remote_name, force)
+  cli_h2("Pushing branches and bumping version")
+
+  push_to_new(remote_name)
   switch_branch(main_branch)
+  # to trigger a run with the release version
+  push_head(main_branch)
 
   cli_h1("2. Bumping main branch to dev version and updating NEWS")
+
   # manual implementation of bump_version(), it doesn't expose `force` yet
   bump_version_to_dev_with_force(force)
+  push_head(main_branch)
 
-  cli_h1("3. Opening Pull Request for release branch")
+  cli_h1("3. Opening draft pull request with contents from {.file cran-comments.md}.")
   # switch to release branch and init pre_release actions
   switch_branch(release_branch)
-
-  cli_alert("Opening draft pull request with contents from {.file cran-comments.md}.")
   create_pull_request(release_branch, main_branch, remote_name, force)
 
   # user action items
   cli_h1("4. User Action Items")
+  
   cli_div(theme = list(ul = list(color = "magenta")))
   cli_ul("Run {.code devtools::check_win_devel()}.")
   cli_ul("Run {.code rhub::check_for_cran()}.")
@@ -147,7 +152,7 @@ update_cran_comments <- function() {
     open = TRUE
   )
 
-  git2r::add(path = "cran-comments.md")
+  git2r::add(path = "cran-comments.md", force = TRUE)
   git2r::commit(message = "Update CRAN comments")
 }
 
@@ -224,6 +229,9 @@ release_impl <- function() {
   stopifnot(is_cran_comments_good())
 
   push_head(get_head_branch())
+
+  cli_h2("Releasing to CRAN")
+
   # FIXME: Copy code from devtools, silent release
   devtools::submit_cran()
   auto_confirm()
